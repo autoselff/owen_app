@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'core/theme.dart';
 import 'features/conversations/conversations_screen.dart';
+import 'features/lock/lock_gate.dart';
 
 class OwenApp extends StatelessWidget {
   const OwenApp({super.key});
@@ -26,7 +27,7 @@ class OwenApp extends StatelessWidget {
           theme: light,
           darkTheme: dark,
           themeMode: ThemeMode.system,
-          home: const ConversationsScreen(),
+          home: const LockGate(child: ConversationsScreen()),
         );
       },
     );

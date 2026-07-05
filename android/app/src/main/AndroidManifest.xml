@@ -1,10 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Privacy-first: the only network access is to the LLM endpoints the user configures. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- App lock: authenticate with biometrics or the device credential (PIN/pattern). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <!-- Privacy-first: keep the encrypted history and secrets on-device only.
+         allowBackup=false disables cloud/adb Auto & Key-Value backup; the
+         dataExtractionRules additionally exclude everything from Android 12+
+         cloud backup and device-to-device transfer. (The SQLCipher key lives in
+         the Keystore, which is device-bound and never leaves the device anyway.) -->
     <application
-        android:label="owen"
+        android:label="Owen"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"

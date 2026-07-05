@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/app_providers.dart';
+import '../../state/lock_providers.dart';
 import 'provider_edit_screen.dart';
 
 class ProvidersScreen extends ConsumerWidget {
@@ -38,6 +39,8 @@ class ProvidersScreen extends ConsumerWidget {
       body: Column(
         children: [
           const _DefaultPromptTile(),
+          const Divider(height: 1),
+          const _AppLockTile(),
           const Divider(height: 1),
           Expanded(
             child: profiles.when(
@@ -106,6 +109,56 @@ class ProvidersScreen extends ConsumerWidget {
       await ref.read(providerProfilesProvider.notifier).delete(p.id);
     }
     await ref.read(conversationsProvider.notifier).clearAll();
+  }
+}
+
+/// Toggles the biometric/device-credential app lock. Enabling it first runs a
+/// real authentication so the user can't lock themselves out on a device that
+/// has no biometrics or screen lock configured.
+class _AppLockTile extends ConsumerWidget {
+  const _AppLockTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(appLockEnabledProvider).value ?? false;
+    return SwitchListTile(
+      secondary: const Icon(Icons.lock_outline),
+      title: const Text('App lock'),
+      subtitle: const Text(
+        'Require biometrics or your device PIN to open Owen.',
+      ),
+      value: enabled,
+      onChanged: (value) => _toggle(context, ref, value),
+    );
+  }
+
+  Future<void> _toggle(BuildContext context, WidgetRef ref, bool value) async {
+    if (!value) {
+      await ref.read(appLockEnabledProvider.notifier).set(false);
+      return;
+    }
+    final auth = ref.read(localAuthProvider);
+    String? failure;
+    try {
+      if (!await auth.isDeviceSupported()) {
+        failure = 'Set up a screen lock or biometrics in system settings first.';
+      } else if (!await auth.authenticate(
+        localizedReason: 'Confirm to enable app lock',
+        persistAcrossBackgrounding: true,
+      )) {
+        return; // user cancelled — leave it off, no message
+      }
+    } on Object catch (e) {
+      failure = 'Authentication unavailable: $e';
+    }
+    if (failure != null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(failure)));
+      }
+      return;
+    }
+    await ref.read(appLockEnabledProvider.notifier).set(true);
   }
 }
 

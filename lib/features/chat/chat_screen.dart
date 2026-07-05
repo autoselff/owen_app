@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/app_providers.dart';
 import '../../state/chat_controller.dart';
+import '../conversations/rename_conversation_dialog.dart';
 import 'widgets/message_bubble.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
@@ -49,6 +50,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     await ref.read(chatControllerProvider.notifier).send(text);
   }
 
+  Future<void> _renameConversation(ChatState state) async {
+    final convo = state.conversation;
+    if (convo == null) return;
+    final newTitle = await showRenameConversationDialog(
+      context,
+      initialTitle: convo.title,
+    );
+    if (newTitle != null) {
+      await ref.read(chatControllerProvider.notifier).rename(newTitle);
+    }
+  }
+
+  Future<void> _compress() async {
+    final navigator = Navigator.of(context);
+    final newId = await ref.read(chatControllerProvider.notifier).compress();
+    if (!mounted || newId == null) return;
+    // Switch the user to the fresh, compressed conversation.
+    navigator.pushReplacement(
+      MaterialPageRoute(builder: (_) => ChatScreen(conversationId: newId)),
+    );
+  }
+
   void _openModelPicker(ChatState state) {
     final convo = state.conversation;
     if (convo == null) return;
@@ -77,13 +100,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          state.conversation?.title.isNotEmpty == true
-              ? state.conversation!.title
-              : 'Conversation',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        title: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: state.conversation == null
+              ? null
+              : () => _renameConversation(state),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    state.conversation?.title.isNotEmpty == true
+                        ? state.conversation!.title
+                        : 'Conversation',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (state.conversation != null) ...[
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.edit_outlined,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
+        actions: [
+          if (state.conversation != null)
+            PopupMenuButton<String>(
+              enabled: !state.streaming &&
+                  !state.compressing &&
+                  state.messages.isNotEmpty,
+              tooltip: 'More',
+              onSelected: (v) {
+                if (v == 'compress') _compress();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'compress',
+                  child: Row(
+                    children: [
+                      Icon(Icons.compress),
+                      SizedBox(width: 12),
+                      Text('Compress conversation'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+        ],
         bottom: state.conversation == null
             ? null
             : PreferredSize(
@@ -134,11 +205,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     },
                   ),
           ),
+          if (state.compressing) const _CompressingBanner(),
           if (state.error != null) _ErrorBanner(message: state.error!),
           _Composer(
             controller: _input,
-            enabled: !state.streaming && state.conversation != null,
+            enabled: !state.streaming &&
+                !state.compressing &&
+                state.conversation != null,
             onSend: _send,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompressingBanner extends StatelessWidget {
+  const _CompressingBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      color: scheme.surfaceContainerHigh,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: scheme.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Compressing conversation…',
+              style: TextStyle(color: scheme.onSurface),
+            ),
           ),
         ],
       ),

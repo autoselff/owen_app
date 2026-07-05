@@ -1,0 +1,9 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="a" x1="340" y1="320" x2="684" y2="704" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14B8A6"/><stop offset="1" stop-color="#0D9488"/>
+    </linearGradient>
+  </defs>
+  <!-- Ring kept inside the ~66% adaptive-icon safe zone (transparent bg) -->
+  <circle cx="512" cy="512" r="210" fill="none" stroke="url(#a)" stroke-width="72"/>
+</svg>

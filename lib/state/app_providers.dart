@@ -123,9 +123,46 @@ class ConversationsNotifier extends AsyncNotifier<List<Conversation>> {
     return convo;
   }
 
+  /// Creates a conversation straight from raw fields (used by chat
+  /// compression, which forks a new conversation with a derived system prompt).
+  /// Returns the new id.
+  Future<String> createRaw({
+    required String providerId,
+    required String model,
+    required String systemPrompt,
+    String title = '',
+  }) async {
+    final db = ref.read(databaseProvider);
+    final now = DateTime.now();
+    final convo = Conversation(
+      id: _uuid.v4(),
+      title: title,
+      providerId: providerId,
+      model: model,
+      systemPrompt: systemPrompt,
+      createdAt: now,
+      updatedAt: now,
+    );
+    await db.upsertConversation(convo);
+    state = AsyncData(await db.conversations());
+    return convo.id;
+  }
+
   Future<void> delete(String id) async {
     final db = ref.read(databaseProvider);
     await db.deleteConversation(id);
+    state = AsyncData(await db.conversations());
+  }
+
+  /// Renames a conversation from the list. Ignores empty titles. Does not
+  /// touch updatedAt, so the list order (by last activity) stays stable.
+  Future<void> rename(String id, String title) async {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) return;
+    final db = ref.read(databaseProvider);
+    final convo = await db.conversation(id);
+    if (convo == null || convo.title == trimmed) return;
+    await db.upsertConversation(convo.copyWith(title: trimmed));
     state = AsyncData(await db.conversations());
   }
 

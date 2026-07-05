@@ -1,0 +1,10 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Owen">
+  <defs>
+    <linearGradient id="owenAccent" x1="140" y1="120" x2="372" y2="392" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#0D9488"/>
+    </linearGradient>
+  </defs>
+  <!-- Idealne koło = "O" w Owen -->
+  <circle cx="256" cy="256" r="168" fill="none" stroke="url(#owenAccent)" stroke-width="56"/>
+</svg>

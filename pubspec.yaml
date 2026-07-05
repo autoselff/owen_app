@@ -1,5 +1,5 @@
 name: owen
-description: "A new Flutter project."
+description: "Owen — a privacy-first mobile chat client for OpenAI-compatible AI models, using your own API keys."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -45,6 +45,7 @@ dependencies:
   sqflite_common_ffi: ^2.4.0+3
   sqflite_common: ^2.5.8
   path_provider: ^2.1.6
+  local_auth: ^3.0.1
 
 dev_dependencies:
   flutter_test:
@@ -56,6 +57,22 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# App launcher / favicon icons — generated from assets/logo via
+# `dart run flutter_launcher_icons`.
+flutter_launcher_icons:
+  image_path: "assets/logo/icon_full.png"
+  android: true
+  adaptive_icon_background: "#0F1512"
+  adaptive_icon_foreground: "assets/logo/icon_foreground.png"
+  ios: true
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/logo/icon_full.png"
+    background_color: "#0F1512"
+    theme_color: "#0D9488"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

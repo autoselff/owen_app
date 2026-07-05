@@ -7,6 +7,7 @@ import '../../state/app_providers.dart';
 import '../chat/chat_screen.dart';
 import '../chat/new_chat_screen.dart';
 import '../settings/providers_screen.dart';
+import 'rename_conversation_dialog.dart';
 
 class ConversationsScreen extends ConsumerWidget {
   const ConversationsScreen({super.key});
@@ -61,6 +62,17 @@ class ConversationsScreen extends ConsumerWidget {
                     builder: (_) => ChatScreen(conversationId: convo.id),
                   ),
                 ),
+                onRename: () async {
+                  final newTitle = await showRenameConversationDialog(
+                    context,
+                    initialTitle: convo.title,
+                  );
+                  if (newTitle != null) {
+                    await ref
+                        .read(conversationsProvider.notifier)
+                        .rename(convo.id, newTitle);
+                  }
+                },
                 onDelete: () =>
                     ref.read(conversationsProvider.notifier).delete(convo.id),
               );
@@ -112,13 +124,36 @@ class _ConversationTile extends StatelessWidget {
     required this.conversation,
     required this.providerName,
     required this.onOpen,
+    required this.onRename,
     required this.onDelete,
   });
 
   final Conversation conversation;
   final String? providerName;
   final VoidCallback onOpen;
+  final VoidCallback onRename;
   final VoidCallback onDelete;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete conversation?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) onDelete();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -134,29 +169,36 @@ class _ConversationTile extends StatelessWidget {
       ),
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       onTap: onOpen,
-      trailing: IconButton(
-        icon: const Icon(Icons.delete_outline),
-        tooltip: 'Delete',
-        onPressed: () async {
-          final confirmed = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Delete conversation?'),
-              content: const Text('This cannot be undone.'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Delete'),
-                ),
-              ],
-            ),
-          );
-          if (confirmed == true) onDelete();
+      onLongPress: onRename,
+      trailing: PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert),
+        tooltip: 'More',
+        onSelected: (value) {
+          switch (value) {
+            case 'rename':
+              onRename();
+            case 'delete':
+              _confirmDelete(context);
+          }
         },
+        itemBuilder: (context) => const [
+          PopupMenuItem(
+            value: 'rename',
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.edit_outlined),
+              title: Text('Rename'),
+            ),
+          ),
+          PopupMenuItem(
+            value: 'delete',
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.delete_outline),
+              title: Text('Delete'),
+            ),
+          ),
+        ],
       ),
     );
   }
