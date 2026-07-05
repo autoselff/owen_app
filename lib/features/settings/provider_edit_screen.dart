@@ -19,6 +19,8 @@ class _ProviderEditScreenState extends ConsumerState<ProviderEditScreen> {
   late final TextEditingController _baseUrl;
   late final TextEditingController _models;
   late final TextEditingController _defaultModel;
+  late final TextEditingController _inputPrice;
+  late final TextEditingController _outputPrice;
   final _apiKey = TextEditingController();
   bool _obscureKey = true;
   bool _keyLoaded = false;
@@ -33,6 +35,10 @@ class _ProviderEditScreenState extends ConsumerState<ProviderEditScreen> {
     _baseUrl = TextEditingController(text: e?.baseUrl ?? '');
     _models = TextEditingController(text: e?.models.join(', ') ?? '');
     _defaultModel = TextEditingController(text: e?.defaultModel ?? '');
+    _inputPrice =
+        TextEditingController(text: e?.inputPricePer1M?.toString() ?? '');
+    _outputPrice =
+        TextEditingController(text: e?.outputPricePer1M?.toString() ?? '');
     if (e != null) {
       // Show a masked placeholder if a key already exists; leaving the field
       // untouched keeps the stored key.
@@ -54,6 +60,8 @@ class _ProviderEditScreenState extends ConsumerState<ProviderEditScreen> {
     _baseUrl.dispose();
     _models.dispose();
     _defaultModel.dispose();
+    _inputPrice.dispose();
+    _outputPrice.dispose();
     _apiKey.dispose();
     super.dispose();
   }
@@ -162,6 +170,47 @@ class _ProviderEditScreenState extends ConsumerState<ProviderEditScreen> {
               validator: _required,
             ),
             const SizedBox(height: 24),
+            Text('Pricing (optional)',
+                style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 4),
+            Text(
+              'USD per 1M tokens. Enables the cost estimate in chat. Leave empty '
+              'if unknown or for a free/local model.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _inputPrice,
+                    decoration: const InputDecoration(
+                      labelText: 'Input / 1M',
+                      prefixText: '\$',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    validator: _optionalPrice,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TextFormField(
+                    controller: _outputPrice,
+                    decoration: const InputDecoration(
+                      labelText: 'Output / 1M',
+                      prefixText: '\$',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    validator: _optionalPrice,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: _save,
               icon: const Icon(Icons.save_outlined),
@@ -175,6 +224,22 @@ class _ProviderEditScreenState extends ConsumerState<ProviderEditScreen> {
 
   String? _required(String? v) =>
       (v == null || v.trim().isEmpty) ? 'Required' : null;
+
+  /// Validates an optional price: empty is fine; otherwise it must be a
+  /// non-negative number.
+  String? _optionalPrice(String? v) {
+    final price = _parsePrice(v);
+    if ((v?.trim().isNotEmpty ?? false) && (price == null || price < 0)) {
+      return 'Invalid';
+    }
+    return null;
+  }
+
+  double? _parsePrice(String? raw) {
+    final t = (raw ?? '').trim().replaceAll(',', '.');
+    if (t.isEmpty) return null;
+    return double.tryParse(t);
+  }
 
   List<String> _parseModels(String? raw) => (raw ?? '')
       .split(',')
@@ -196,6 +261,8 @@ class _ProviderEditScreenState extends ConsumerState<ProviderEditScreen> {
       baseUrl: _baseUrl.text.trim(),
       models: models,
       defaultModel: defaultModel,
+      inputPricePer1M: _parsePrice(_inputPrice.text),
+      outputPricePer1M: _parsePrice(_outputPrice.text),
     );
 
     await notifier.save(profile, apiKey: _apiKey.text.trim());

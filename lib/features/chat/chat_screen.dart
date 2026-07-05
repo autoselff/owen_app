@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/provider_profile.dart';
 import '../../state/app_providers.dart';
 import '../../state/chat_controller.dart';
 import '../conversations/rename_conversation_dialog.dart';
@@ -72,6 +73,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  Future<void> _editMessage(String id, String current) async {
+    final controller = TextEditingController(text: current);
+    final edited = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit message'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 8,
+          decoration: const InputDecoration(hintText: 'Your message'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (edited != null && edited.isNotEmpty) {
+      await ref.read(chatControllerProvider.notifier).editUserMessage(id, edited);
+    }
+  }
+
   void _openModelPicker(ChatState state) {
     final convo = state.conversation;
     if (convo == null) return;
@@ -97,6 +129,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Keep the view pinned to the latest message as it streams in.
     ref.listen(chatControllerProvider, (_, _) => _scrollToBottom());
+
+    // Resolve this conversation's provider (for the cost estimate) and add up
+    // the tokens actually billed across the conversation.
+    final profiles = ref.watch(providerProfilesProvider).value ?? const [];
+    final convo = state.conversation;
+    ProviderProfile? profile;
+    if (convo != null) {
+      for (final p in profiles) {
+        if (p.id == convo.providerId) {
+          profile = p;
+          break;
+        }
+      }
+    }
+    var inputTokens = 0;
+    var outputTokens = 0;
+    for (final m in state.messages) {
+      final u = m.usage;
+      if (u != null) {
+        inputTokens += u.promptTokens;
+        outputTokens += u.completionTokens;
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -159,29 +214,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ? null
             : PreferredSize(
                 preferredSize: const Size.fromHeight(28),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => _openModelPicker(state),
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.fromLTRB(12, 2, 12, 8),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              state.conversation!.model,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelMedium,
-                            ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => _openModelPicker(state),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  state.conversation!.model,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style:
+                                      Theme.of(context).textTheme.labelMedium,
+                                ),
+                              ),
+                              const Icon(Icons.keyboard_arrow_down, size: 18),
+                            ],
                           ),
-                          const Icon(Icons.keyboard_arrow_down, size: 18),
-                        ],
+                        ),
                       ),
-                    ),
+                      if (inputTokens + outputTokens > 0) ...[
+                        const SizedBox(width: 8),
+                        _UsageSummary(
+                          inputTokens: inputTokens,
+                          outputTokens: outputTokens,
+                          profile: profile,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
@@ -198,9 +264,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     itemBuilder: (context, i) {
                       final m = state.messages[i];
                       final isLast = i == state.messages.length - 1;
+                      final idle = !state.streaming && !state.compressing;
                       return MessageBubble(
                         message: m,
                         streaming: state.streaming && isLast && !m.isUser,
+                        onRegenerate:
+                            idle && !m.isUser && isLast && m.content.isNotEmpty
+                                ? () => ref
+                                    .read(chatControllerProvider.notifier)
+                                    .regenerate()
+                                : null,
+                        onEdit: idle && m.isUser
+                            ? () => _editMessage(m.id, m.content)
+                            : null,
                       );
                     },
                   ),
@@ -212,7 +288,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             enabled: !state.streaming &&
                 !state.compressing &&
                 state.conversation != null,
+            streaming: state.streaming,
             onSend: _send,
+            onStop: () => ref.read(chatControllerProvider.notifier).stop(),
           ),
         ],
       ),
@@ -281,16 +359,71 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
+/// Running token total for the conversation, plus an estimated cost when the
+/// provider has pricing configured. Tokens are the amounts actually billed
+/// (each turn's input includes the full history re-sent to the model).
+class _UsageSummary extends StatelessWidget {
+  const _UsageSummary({
+    required this.inputTokens,
+    required this.outputTokens,
+    required this.profile,
+  });
+
+  final int inputTokens;
+  final int outputTokens;
+  final ProviderProfile? profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final total = inputTokens + outputTokens;
+
+    String label = '$total tok';
+    String tip = 'Input: $inputTokens · Output: $outputTokens · '
+        'Total: $total tokens (this conversation)';
+
+    final p = profile;
+    if (p != null && p.hasPricing) {
+      final cost = inputTokens / 1e6 * p.inputPricePer1M! +
+          outputTokens / 1e6 * p.outputPricePer1M!;
+      final costStr = cost >= 1
+          ? '\$${cost.toStringAsFixed(2)}'
+          : '\$${cost.toStringAsFixed(4)}';
+      label = '$total tok · $costStr';
+      tip = '$tip\nEstimated cost: $costStr '
+          '(in \$${p.inputPricePer1M!.toStringAsFixed(2)}/1M, '
+          'out \$${p.outputPricePer1M!.toStringAsFixed(2)}/1M)';
+    }
+
+    return Tooltip(
+      message: tip,
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context)
+            .textTheme
+            .labelMedium
+            ?.copyWith(color: scheme.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
     required this.enabled,
+    required this.streaming,
     required this.onSend,
+    required this.onStop,
   });
 
   final TextEditingController controller;
   final bool enabled;
+  final bool streaming;
   final Future<void> Function() onSend;
+  final VoidCallback onStop;
 
   @override
   Widget build(BuildContext context) {
@@ -332,9 +465,14 @@ class _Composer extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 2),
                 child: IconButton.filled(
-                  onPressed: enabled ? onSend : null,
+                  onPressed:
+                      streaming ? onStop : (enabled ? onSend : null),
                   visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.arrow_upward, size: 20),
+                  tooltip: streaming ? 'Stop' : 'Send',
+                  icon: Icon(
+                    streaming ? Icons.stop : Icons.arrow_upward,
+                    size: 20,
+                  ),
                 ),
               ),
             ],

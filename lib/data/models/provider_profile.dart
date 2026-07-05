@@ -12,6 +12,8 @@ class ProviderProfile {
     required this.baseUrl,
     required this.models,
     required this.defaultModel,
+    this.inputPricePer1M,
+    this.outputPricePer1M,
   });
 
   /// Stable identifier, also used as the secret-store key for the API key.
@@ -29,11 +31,21 @@ class ProviderProfile {
   /// Model selected by default when starting a new chat.
   final String defaultModel;
 
+  /// Optional pricing in USD per 1,000,000 tokens, used only for the on-screen
+  /// cost estimate. Null when the user hasn't provided it.
+  final double? inputPricePer1M;
+  final double? outputPricePer1M;
+
+  /// True when both prices are set, so a cost estimate can be shown.
+  bool get hasPricing => inputPricePer1M != null && outputPricePer1M != null;
+
   ProviderProfile copyWith({
     String? name,
     String? baseUrl,
     List<String>? models,
     String? defaultModel,
+    double? inputPricePer1M,
+    double? outputPricePer1M,
   }) {
     return ProviderProfile(
       id: id,
@@ -41,6 +53,8 @@ class ProviderProfile {
       baseUrl: baseUrl ?? this.baseUrl,
       models: models ?? this.models,
       defaultModel: defaultModel ?? this.defaultModel,
+      inputPricePer1M: inputPricePer1M ?? this.inputPricePer1M,
+      outputPricePer1M: outputPricePer1M ?? this.outputPricePer1M,
     );
   }
 
@@ -50,6 +64,8 @@ class ProviderProfile {
         'base_url': baseUrl,
         'models': jsonEncode(models),
         'default_model': defaultModel,
+        'input_price': inputPricePer1M,
+        'output_price': outputPricePer1M,
       };
 
   factory ProviderProfile.fromDbMap(Map<String, Object?> m) => ProviderProfile(
@@ -58,6 +74,8 @@ class ProviderProfile {
         baseUrl: m['base_url'] as String,
         models: (jsonDecode(m['models'] as String) as List).cast<String>(),
         defaultModel: m['default_model'] as String,
+        inputPricePer1M: (m['input_price'] as num?)?.toDouble(),
+        outputPricePer1M: (m['output_price'] as num?)?.toDouble(),
       );
 }
 

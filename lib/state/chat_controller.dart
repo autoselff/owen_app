@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../data/llm/openai_client.dart';
 import '../data/models/chat_message.dart';
 import '../data/models/conversation.dart';
 import '../data/models/provider_profile.dart';
@@ -53,6 +56,12 @@ final chatControllerProvider =
 /// assistant reply into state while persisting to the encrypted database.
 class ChatController extends Notifier<ChatState> {
   static const _uuid = Uuid();
+
+  /// Subscription to the in-flight completion stream, so it can be cancelled
+  /// (which closes the HTTP connection and stops further token generation).
+  StreamSubscription<ChatChunk>? _activeSub;
+  Completer<void>? _streamDone;
+  bool _stopped = false;
 
   @override
   ChatState build() => const ChatState();
@@ -109,6 +118,78 @@ class ChatController extends Notifier<ChatState> {
     final trimmed = text.trim();
     if (convo == null || state.streaming || trimmed.isEmpty) return;
 
+    final userMsg = ChatMessage(
+      id: _uuid.v4(),
+      conversationId: convo.id,
+      role: ChatRole.user,
+      content: trimmed,
+      createdAt: DateTime.now(),
+    );
+    await ref.read(databaseProvider).insertMessage(userMsg);
+    state = state.copyWith(
+      messages: [...state.messages, userMsg],
+      error: null,
+    );
+    await _runCompletion(titleSeed: trimmed);
+  }
+
+  /// Stops the current streaming reply. The partial text received so far is
+  /// kept and persisted; cancelling the subscription closes the connection so
+  /// the provider stops generating (and billing) further tokens.
+  Future<void> stop() async {
+    if (!state.streaming) return;
+    _stopped = true;
+    await _activeSub?.cancel();
+    _activeSub = null;
+    final done = _streamDone;
+    if (done != null && !done.isCompleted) done.complete();
+  }
+
+  /// Re-generates the last assistant reply: drops it and streams a fresh one
+  /// from the same history.
+  Future<void> regenerate() async {
+    if (state.streaming) return;
+    final msgs = state.messages;
+    var i = msgs.length - 1;
+    while (i >= 0 && msgs[i].role != ChatRole.assistant) {
+      i--;
+    }
+    if (i < 0) return;
+    await ref.read(databaseProvider).deleteMessage(msgs[i].id);
+    state = state.copyWith(messages: [...msgs]..removeAt(i));
+    await _runCompletion();
+  }
+
+  /// Edits a user message and re-runs from that point: everything after the
+  /// edited message is discarded and a new reply is generated.
+  Future<void> editUserMessage(String id, String newText) async {
+    if (state.streaming) return;
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) return;
+    final msgs = state.messages;
+    final idx = msgs.indexWhere((m) => m.id == id);
+    if (idx < 0 || msgs[idx].role != ChatRole.user) return;
+    if (msgs[idx].content == trimmed) return;
+
+    final db = ref.read(databaseProvider);
+    await db.updateMessageContent(id, trimmed);
+    for (final m in msgs.sublist(idx + 1)) {
+      await db.deleteMessage(m.id);
+    }
+    state = state.copyWith(messages: [
+      for (var i = 0; i <= idx; i++)
+        if (i == idx) msgs[i].copyWith(content: trimmed) else msgs[i],
+    ]);
+    await _runCompletion();
+  }
+
+  /// Streams an assistant reply for the current [state.messages] (which must
+  /// end with a user turn). Shared by [send], [regenerate] and
+  /// [editUserMessage]. [titleSeed], when given, names an untitled chat.
+  Future<void> _runCompletion({String? titleSeed}) async {
+    final convo = state.conversation;
+    if (convo == null || state.streaming) return;
+
     final db = ref.read(databaseProvider);
     final secrets = ref.read(secretStoreProvider);
     final client = ref.read(llmClientProvider);
@@ -129,8 +210,6 @@ class ChatController extends Notifier<ChatState> {
     }
     final apiKey = await secrets.apiKey(convo.providerId);
 
-    // Build the request from prior turns + this one, before we add a
-    // placeholder for the streaming reply.
     final payload = <Map<String, String>>[];
     if (convo.systemPrompt.trim().isNotEmpty) {
       payload.add({'role': 'system', 'content': convo.systemPrompt});
@@ -138,42 +217,35 @@ class ChatController extends Notifier<ChatState> {
     for (final m in state.messages) {
       payload.add({'role': m.role.name, 'content': m.content});
     }
-    payload.add({'role': 'user', 'content': trimmed});
 
-    final now = DateTime.now();
-    final userMsg = ChatMessage(
-      id: _uuid.v4(),
-      conversationId: convo.id,
-      role: ChatRole.user,
-      content: trimmed,
-      createdAt: now,
-    );
     final assistantMsg = ChatMessage(
       id: _uuid.v4(),
       conversationId: convo.id,
       role: ChatRole.assistant,
       content: '',
-      createdAt: now.add(const Duration(milliseconds: 1)),
+      createdAt: DateTime.now(),
     );
-
-    await db.insertMessage(userMsg);
     await db.insertMessage(assistantMsg);
     state = state.copyWith(
-      messages: [...state.messages, userMsg, assistantMsg],
+      messages: [...state.messages, assistantMsg],
       streaming: true,
       error: null,
     );
 
     final buffer = StringBuffer();
     TokenUsage? usage;
-    try {
-      final stream = client.streamChat(
-        baseUrl: profile.baseUrl,
-        apiKey: apiKey,
-        model: convo.model,
-        messages: payload,
-      );
-      await for (final chunk in stream) {
+    _stopped = false;
+    final done = Completer<void>();
+    _streamDone = done;
+    _activeSub = client
+        .streamChat(
+          baseUrl: profile.baseUrl,
+          apiKey: apiKey,
+          model: convo.model,
+          messages: payload,
+        )
+        .listen(
+      (chunk) {
         if (chunk.usage != null) {
           usage = chunk.usage;
           _setAssistantUsage(assistantMsg.id, usage!);
@@ -182,19 +254,32 @@ class ChatController extends Notifier<ChatState> {
           buffer.write(chunk.text);
           _setAssistantContent(assistantMsg.id, buffer.toString());
         }
-      }
-    } on Object catch (e) {
-      state = state.copyWith(error: e.toString());
-    } finally {
-      await db.finalizeMessage(assistantMsg.id, buffer.toString(), usage);
-      final updated = convo.copyWith(
-        updatedAt: DateTime.now(),
-        title: convo.title.isEmpty ? _titleFrom(trimmed) : convo.title,
-      );
-      await db.upsertConversation(updated);
-      state = state.copyWith(conversation: updated, streaming: false);
-      await ref.read(conversationsProvider.notifier).refresh();
-    }
+      },
+      onError: (Object e) {
+        if (!_stopped) state = state.copyWith(error: e.toString());
+        if (!done.isCompleted) done.complete();
+      },
+      onDone: () {
+        if (!done.isCompleted) done.complete();
+      },
+      cancelOnError: true,
+    );
+
+    await done.future;
+    await _activeSub?.cancel();
+    _activeSub = null;
+    _streamDone = null;
+
+    await db.finalizeMessage(assistantMsg.id, buffer.toString(), usage);
+    final updated = convo.copyWith(
+      updatedAt: DateTime.now(),
+      title: convo.title.isEmpty && titleSeed != null
+          ? _titleFrom(titleSeed)
+          : convo.title,
+    );
+    await db.upsertConversation(updated);
+    state = state.copyWith(conversation: updated, streaming: false);
+    await ref.read(conversationsProvider.notifier).refresh();
   }
 
   // System prompt + instruction used to distil a conversation into a compact

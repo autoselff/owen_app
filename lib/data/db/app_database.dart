@@ -26,7 +26,7 @@ class AppDatabase {
   static bool get _isMobile =>
       !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
-  static const _version = 2;
+  static const _version = 3;
 
   /// [directoryOverride] is only for tests, to avoid the `path_provider`
   /// platform channel; production always resolves the stable app-data dir.
@@ -79,15 +79,24 @@ class AppDatabase {
   /// database in any older state, even if the version-based migration never
   /// ran (e.g. a stale connection surviving a hot restart).
   static Future<void> _ensureSchema(Database db) async {
-    final columns = await db.rawQuery('PRAGMA table_info(messages)');
-    final present = {for (final c in columns) c['name'] as String};
+    final msgCols = await db.rawQuery('PRAGMA table_info(messages)');
+    final msgPresent = {for (final c in msgCols) c['name'] as String};
     for (final col in const [
       'prompt_tokens',
       'completion_tokens',
       'total_tokens',
     ]) {
-      if (!present.contains(col)) {
+      if (!msgPresent.contains(col)) {
         await db.execute('ALTER TABLE messages ADD COLUMN $col INTEGER');
+      }
+    }
+    // Optional per-provider pricing (USD per 1M tokens), used by the token/cost
+    // meter. Nullable — unknown until the user fills it in.
+    final provCols = await db.rawQuery('PRAGMA table_info(providers)');
+    final provPresent = {for (final c in provCols) c['name'] as String};
+    for (final col in const ['input_price', 'output_price']) {
+      if (!provPresent.contains(col)) {
+        await db.execute('ALTER TABLE providers ADD COLUMN $col REAL');
       }
     }
     await db.execute(
@@ -102,6 +111,10 @@ class AppDatabase {
           .execute('ALTER TABLE messages ADD COLUMN completion_tokens INTEGER');
       await db.execute('ALTER TABLE messages ADD COLUMN total_tokens INTEGER');
     }
+    if (from < 3) {
+      await db.execute('ALTER TABLE providers ADD COLUMN input_price REAL');
+      await db.execute('ALTER TABLE providers ADD COLUMN output_price REAL');
+    }
   }
 
   static Future<void> _onCreate(Database db, int version) async {
@@ -111,7 +124,9 @@ class AppDatabase {
         name TEXT NOT NULL,
         base_url TEXT NOT NULL,
         models TEXT NOT NULL,
-        default_model TEXT NOT NULL
+        default_model TEXT NOT NULL,
+        input_price REAL,
+        output_price REAL
       )
     ''');
     await db.execute('''
@@ -234,6 +249,9 @@ class AppDatabase {
         m.toDbMap(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+
+  Future<void> deleteMessage(String id) =>
+      _db.delete('messages', where: 'id = ?', whereArgs: [id]);
 
   Future<void> updateMessageContent(String id, String content) => _db.update(
         'messages',

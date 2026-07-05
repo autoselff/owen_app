@@ -13,10 +13,18 @@ class MessageBubble extends StatelessWidget {
     super.key,
     required this.message,
     this.streaming = false,
+    this.onRegenerate,
+    this.onEdit,
   });
 
   final ChatMessage message;
   final bool streaming;
+
+  /// Shown under the last assistant reply to stream a fresh answer.
+  final VoidCallback? onRegenerate;
+
+  /// Shown under a user message to edit it and re-run from that point.
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +33,7 @@ class MessageBubble extends StatelessWidget {
 
   Widget _user(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Align(
+    final bubble = Align(
       alignment: Alignment.centerRight,
       child: Container(
         constraints: BoxConstraints(
@@ -48,6 +56,21 @@ class MessageBubble extends StatelessWidget {
         ),
       ),
     );
+    if (onEdit == null) return bubble;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        bubble,
+        Padding(
+          padding: const EdgeInsets.only(right: 16, bottom: 2),
+          child: _SmallAction(
+            icon: Icons.edit_outlined,
+            label: 'Edit',
+            onTap: onEdit!,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _assistant(BuildContext context) {
@@ -60,16 +83,28 @@ class MessageBubble extends StatelessWidget {
           if (message.content.isEmpty && streaming)
             const _TypingIndicator()
           else
-            GptMarkdown(
-              message.content,
-              style: TextStyle(color: scheme.onSurface, height: 1.5),
+            // GptMarkdown isn't selectable on its own; SelectionArea lets the
+            // user highlight and copy any part of the rendered reply.
+            SelectionArea(
+              child: GptMarkdown(
+                message.content,
+                style: TextStyle(color: scheme.onSurface, height: 1.5),
+              ),
             ),
           if (message.content.isNotEmpty && !streaming)
             Row(
               children: [
                 _CopyButton(text: message.content),
-                if (message.usage != null) ...[
+                if (onRegenerate != null) ...[
                   const SizedBox(width: 4),
+                  _SmallAction(
+                    icon: Icons.refresh,
+                    label: 'Regenerate',
+                    onTap: onRegenerate!,
+                  ),
+                ],
+                if (message.usage != null) ...[
+                  const SizedBox(width: 8),
                   _UsageLabel(usage: message.usage!),
                 ],
               ],
@@ -135,6 +170,46 @@ class _CopyButton extends StatelessWidget {
                   fontSize: 12,
                   color: scheme.onSurfaceVariant,
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A compact text+icon action button matching the "Copy" affordance, used for
+/// "Edit" and "Regenerate".
+class _SmallAction extends StatelessWidget {
+  const _SmallAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
               ),
             ],
           ),
