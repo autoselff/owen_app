@@ -9,6 +9,9 @@
   Connect with <b>your own API keys</b> to any OpenAI-compatible endpoint.
   Nothing passes through any intermediate server.
 </p>
+<p align="center">
+  <a href="https://github.com/autoselff/owen_app/releases/download/1.0.0/app-release.apk">DOWNLOAD</a>
+</p>
 
 ---
 
