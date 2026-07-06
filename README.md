@@ -22,6 +22,12 @@ it talks **directly** to the provider you configure, stores everything **locally
 and encrypted**, and ships **zero telemetry**. Your keys and your history never
 leave the device except as requests to the endpoint you chose.
 
+## Screenshots
+<p align="center">
+  <img width="428" height="777" alt="ss2" src="https://github.com/user-attachments/assets/2f1a59e7-d22d-4add-9f2d-bd01f2fa23aa" />
+  <img width="428" height="777" alt="ss1" src="https://github.com/user-attachments/assets/31c4e8ce-36c9-4e56-ad4f-80c7aaa55e3d" />
+</p>
+
 ## Privacy & security
 
 - **No telemetry or analytics.** The only network traffic goes to the endpoints
