@@ -23,7 +23,7 @@ and encrypted**, and ships **zero telemetry**. Your keys and your history never
 leave the device except as requests to the endpoint you chose.
 
 ## Screenshots
-<div style="display:flex; flex-wrap:wrap; gap:12px;" align="center">
+<div style="display:flex; flex-wrap:wrap; gap:12px;">
   <img style="flex: 0 0 auto; max-width:100%; height:auto;" src="https://github.com/user-attachments/assets/2f1a59e7-d22d-4add-9f2d-bd01f2fa23aa" alt="ss1">
   <img style="flex: 0 0 auto; max-width:100%; height:auto;" src="https://github.com/user-attachments/assets/31c4e8ce-36c9-4e56-ad4f-80c7aaa55e3d" alt="ss2">
 </div>
