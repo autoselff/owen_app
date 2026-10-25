@@ -119,9 +119,3 @@ Owen is free software licensed under the **GNU General Public License v3.0**
 also be released under the GPL-3.0. See [`LICENSE`](LICENSE) for the full text.
 
 Copyright (C) 2026 autoselff
-
----
-
-> **Note on how this was built.** Owen was developed with the assistance of a
-> large language model (LLM). Its code, comments, and this documentation were
-> written collaboratively with AI, then reviewed before committing.
